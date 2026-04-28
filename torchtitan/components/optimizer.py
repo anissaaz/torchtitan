@@ -23,6 +23,7 @@ from torch.distributed.checkpoint.state_dict import (
 from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed.tensor import Replicate
 from torch.optim import Optimizer
+from torchtitan.components.soap import SOAP
 from torchtitan.config import Configurable
 from torchtitan.distributed import ParallelDims
 from torchtitan.tools.logging import logger
@@ -143,28 +144,49 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
 
     @staticmethod
     def _resolve_optimizer_cls(name: str) -> type:
-        optimizer_classes = {"Adam": torch.optim.Adam, "AdamW": torch.optim.AdamW}
-        if name not in optimizer_classes:
+        optimizer_classes = {"adam": torch.optim.Adam, 
+                             "adamw": torch.optim.AdamW,
+                             "soap": SOAP,
+                             }
+        key = name.lower()
+        if key not in optimizer_classes:
             raise NotImplementedError(f"Optimizer {name} not added.")
-        return optimizer_classes[name]
+        return optimizer_classes[key]
 
     @staticmethod
     def _build_optimizer_kwargs(config: Config) -> dict[str, Any]:
-        assert config.implementation in [
-            "fused",
-            "foreach",
-            "for-loop",
-            "fused_opt_states_bf16",
-        ]
-        fused = config.implementation in ("fused", "fused_opt_states_bf16")
-        return {
+        if config.name.lower() in ("adam", "adamw"):
+            assert config.implementation in [
+                "fused",
+                "foreach",
+                "for-loop",
+                "fused_opt_states_bf16",
+            ]
+            
+        kwargs = {
             "lr": config.lr,
             "betas": (config.beta1, config.beta2),
             "eps": config.eps,
             "weight_decay": config.weight_decay,
-            "fused": fused,
-            "foreach": config.implementation == "foreach",
         }
+        if config.name.lower().startswith("soap"):
+            kwargs.update({
+                "precondition_frequency": config.precondition_frequency,
+                "max_precond_dim": config.max_precond_dim,
+                "shampoo_beta": config.shampoo_beta,
+                "merge_dims": config.merge_dims,
+                "precondition_1d": config.precondition_1d,
+                "normalize_grads": config.normalize_grads,
+                "correct_bias": config.correct_bias,
+            })
+        else:
+            fused = config.implementation in ("fused", "fused_opt_states_bf16")
+            kwargs.update({
+                "fused": fused,
+                "foreach": config.implementation == "foreach",
+            })
+
+        return kwargs
 
     @staticmethod
     def _build_param_groups(
@@ -349,10 +371,11 @@ class OptimizersInBackwardContainer(OptimizersContainer):
     class Config(OptimizersContainer.Config):
         def __post_init__(self) -> None:
             if self.implementation == "fused_opt_states_bf16":
-                raise ValueError(
-                    "implementation='fused_opt_states_bf16' is not supported with "
-                    "OptimizersInBackwardContainer"
-                )
+                if self.name.lower() not in ("adam", "adamw"):
+                    raise ValueError(
+                        "implementation='fused_opt_states_bf16' is not supported with "
+                        "OptimizersInBackwardContainer"
+                    )
             OptimizersContainer.Config.__post_init__(self)
 
     def __init__(self, config: Config, *, model_parts: list[nn.Module]) -> None:
