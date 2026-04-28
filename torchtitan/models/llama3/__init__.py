@@ -165,6 +165,47 @@ def _debugmodel_fused_qkv(attn_backend: str = "sdpa") -> Llama3Model.Config:
             attn_backend=attn_backend,
         ),
     )
+    
+def _350m(attn_backend: str = "sdpa") -> Llama3Model.Config:
+    dim = 1024
+    n_heads = 16
+    n_kv_heads = 16          # Matches n_heads for standard attention (like GPT-2)
+    n_layers = 24
+    vocab_size = 32000       # MATCHES LLAMA 2 TOKENIZER EXACTLY
+    
+    return Llama3Model.Config(
+        dim=dim,
+        vocab_size=vocab_size,
+        enable_weight_tying=True,    # Highly recommended for small models
+        tok_embeddings=Embedding.Config(
+            num_embeddings=vocab_size,
+            embedding_dim=dim,
+            param_init=_EMBEDDING_SKIP_INIT,
+        ),
+        norm=RMSNorm.Config(normalized_shape=dim, param_init=_NORM_INIT),
+        lm_head=Linear.Config(
+            in_features=dim,
+            out_features=vocab_size,
+            param_init=_output_linear_init(dim),
+        ),
+        rope=RoPE.Config(
+            dim=dim // n_heads,
+            max_seq_len=1024,        # match GPT2m baseline
+            theta=10000,             # short context length
+            backend="complex",
+            scaling=None,            # "llama" designed for long-context
+        ),
+        layers=_build_llama3_layers(
+            n_layers=n_layers,
+            dim=dim,
+            n_heads=n_heads,
+            n_kv_heads=n_kv_heads,
+            hidden_dim=compute_ffn_hidden_dim(
+                dim, multiple_of=256, ffn_dim_multiplier=1.0
+            ),
+            attn_backend=attn_backend,
+        ),
+    )
 
 
 def _1b(attn_backend: str = "sdpa") -> Llama3Model.Config:
