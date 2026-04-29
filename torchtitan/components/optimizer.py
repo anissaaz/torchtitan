@@ -130,6 +130,15 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
         pattern matching parameter FQNs and multipliers for lr and weight_decay.
         Parameters not matching any pattern use the global defaults.
         Patterns are checked in order; first match wins."""
+        
+        # SOAP arguments
+        precondition_frequency: int = 10
+        max_precond_dim: int = 10000
+        shampoo_beta: float = -1.0
+        merge_dims: bool = False
+        precondition_1d: bool = False
+        normalize_grads: bool = False
+        correct_bias: bool = True
 
         def __post_init__(self):
             if self.implementation == "fused_opt_states_bf16":

@@ -128,6 +128,103 @@ def llama3_debugmodel_float8_emulate() -> Trainer.Config:
     )
     return config
 
+def llama3_1b_soap() -> Trainer.Config:
+    return Trainer.Config(
+        loss=ChunkedCELoss.Config(),
+        hf_assets_path="./assets/hf/Meta-Llama-3-8B",
+        profiler=Profiler.Config(
+            enable_profiling=False,
+        ),
+        metrics=MetricsProcessor.Config(
+            log_freq=10,
+            enable_tensorboard=False,
+            enable_wandb=True,
+        ),
+        # "1b" matches exactly how you registered it in __init__.py
+        model_spec=model_registry("1B"), 
+        optimizer=OptimizersContainer.Config(
+            name="soap",
+            lr=3e-3,
+            beta1=0.95,
+            beta2=0.95,
+            weight_decay=0.01,
+            eps=1e-8,
+            # soap args
+            precondition_frequency=10,
+            max_precond_dim=8192,
+            correct_bias=True,
+        ),
+        training=TrainingConfig(
+            local_batch_size=32,
+            global_batch_size=2048,
+            seq_len=1024,
+            steps=2384,
+        ),
+        dataloader=HuggingFaceTextDataLoader.Config(
+            dataset="c4",
+            dataset_path="./my_local_data/c4_train_1b/",
+        ),
+        checkpoint=CheckpointManager.Config(
+            folder="/local/home/aziane/checkpoints/1b_soap",
+            interval=1000,
+        ),
+        activation_checkpoint=ActivationCheckpointConfig(
+            mode="selective",
+        ),
+        validator=Validator.Config(
+            freq=200,
+            steps=200,
+        ),
+    )
+    
+def llama3_1b_soap_trunc() -> Trainer.Config:
+    return Trainer.Config(
+        loss=ChunkedCELoss.Config(),
+        hf_assets_path="./assets/hf/Meta-Llama-3-8B",
+        profiler=Profiler.Config(
+            enable_profiling=False,
+        ),
+        metrics=MetricsProcessor.Config(
+            log_freq=10,
+            enable_tensorboard=False,
+            enable_wandb=True,
+        ),
+        # "1b" matches exactly how you registered it in __init__.py
+        model_spec=model_registry("1B"), 
+        optimizer=OptimizersContainer.Config(
+            name="soap",
+            lr=3e-3,
+            beta1=0.95,
+            beta2=0.95,
+            weight_decay=0.01,
+            eps=1e-8,
+            # soap args
+            precondition_frequency=10,
+            max_precond_dim=8192,
+            correct_bias=True,
+        ),
+        training=TrainingConfig(
+            local_batch_size=32,
+            global_batch_size=2048,
+            seq_len=1024,
+            steps=2384,
+        ),
+        dataloader=HuggingFaceTextDataLoader.Config(
+            dataset="c4",
+            dataset_path="./my_local_data/c4_train_1b/",
+        ),
+        checkpoint=CheckpointManager.Config(
+            folder="/local/home/aziane/checkpoints/1b_soap",
+            interval=1000,
+        ),
+        activation_checkpoint=ActivationCheckpointConfig(
+            mode="selective",
+        ),
+        validator=Validator.Config(
+            freq=200,
+            steps=200,
+        ),
+    )
 
 def llama3_8b() -> Trainer.Config:
     return Trainer.Config(

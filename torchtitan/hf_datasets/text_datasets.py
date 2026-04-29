@@ -11,7 +11,8 @@ from typing import Annotated, Any, cast
 
 import torch
 import tyro
-from datasets import Dataset, load_dataset
+import os
+from datasets import Dataset, load_dataset, load_from_disk
 from datasets.distributed import split_dataset_by_node
 from torch.distributed.checkpoint.stateful import Stateful
 from torch.utils.data import IterableDataset
@@ -25,6 +26,12 @@ from torchtitan.tools.logging import logger
 
 def _load_c4_dataset(dataset_path: str, split: str):
     """Load C4 dataset with default configuration."""
+    # Check if the path exists and looks like a saved dataset directory
+    if os.path.isdir(dataset_path):
+        # dataset.save_to_disk usually creates a dataset_dict.json or state.json
+        if os.path.exists(os.path.join(dataset_path, "dataset_info.json")) or \
+           os.path.exists(os.path.join(dataset_path, "state.json")):
+            return load_from_disk(dataset_path)
     return load_dataset(dataset_path, name="en", split=split, streaming=True)
 
 
