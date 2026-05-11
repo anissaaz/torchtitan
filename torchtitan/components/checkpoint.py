@@ -176,6 +176,9 @@ class CheckpointManager(Configurable):
 
         interval: int = 500
         """Checkpointing interval in steps."""
+        
+        additional_steps: list[int] = field(default_factory=list)
+        """Additional checkpoints to save"""
 
         initial_load_path: str | None = None
         """
@@ -362,6 +365,7 @@ class CheckpointManager(Configurable):
         self.exclude_from_loading = config.exclude_from_loading
         self.interval = config.interval
         self.enable_first_step_checkpoint = config.enable_first_step_checkpoint
+        self.additional_steps = config.additional_steps
 
         # Async checkpoint related fields.
         async_mode = config.async_mode.lower()
@@ -842,6 +846,9 @@ class CheckpointManager(Configurable):
             return True
 
         if curr_step % self.interval == 0:
+            return True
+        
+        if curr_step in self.additional_steps:
             return True
 
         return False

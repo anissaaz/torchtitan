@@ -7,6 +7,7 @@
 from torchtitan.components.checkpoint import CheckpointManager
 from torchtitan.components.loss import ChunkedCELoss
 from torchtitan.components.lr_scheduler import LRSchedulersContainer
+from torchtitan.config.configs import CompileConfig
 from torchtitan.components.metrics import MetricsProcessor
 from torchtitan.components.optimizer import (
     OptimizersContainer,
@@ -128,8 +129,62 @@ def llama3_debugmodel_float8_emulate() -> Trainer.Config:
     )
     return config
 
+def llama3_1b_adamw() -> Trainer.Config:
+    return Trainer.Config(
+        compile=CompileConfig(
+            enable=True,
+            components=["model", "loss"],
+            backend="inductor",
+        ),
+        loss=ChunkedCELoss.Config(),
+        hf_assets_path="./assets/hf/Meta-Llama-3-8B",
+        profiler=Profiler.Config(
+            enable_profiling=False,
+        ),
+        metrics=MetricsProcessor.Config(
+            log_freq=10,
+            enable_tensorboard=False,
+            enable_wandb=True,
+        ),
+        model_spec=model_registry("1B"),
+        optimizer=OptimizersContainer.Config(lr=3e-4),
+        lr_scheduler=LRSchedulersContainer.Config(
+            warmup_steps=24,       # 1% of total steps
+            decay_type="cosine",
+        ),
+        training=TrainingConfig(
+            local_batch_size=16,
+            global_batch_size=2048,
+            seq_len=1024,
+            steps=2384,
+        ),
+        dataloader=HuggingFaceTextDataLoader.Config(
+            dataset="c4",
+            dataset_path="./my_local_data/c4_train_1b/",
+        ),
+        checkpoint=CheckpointManager.Config(
+            enable=True,
+            folder="/local/home/aziane/checkpoints/llama1b_adamw",
+            interval=1000,
+            additional_steps=[1, 128, 256, 512],
+        ),
+        activation_checkpoint=ActivationCheckpointConfig(
+            mode="selective",
+        ),
+        validator=Validator.Config(
+            enable=True,
+            freq=100,
+            steps=50,
+        ),
+    )
+
 def llama3_1b_soap() -> Trainer.Config:
     return Trainer.Config(
+        compile=CompileConfig(
+            enable=True,
+            components=["model", "loss"],
+            backend="inductor",
+        ),
         loss=ChunkedCELoss.Config(),
         hf_assets_path="./assets/hf/Meta-Llama-3-8B",
         profiler=Profiler.Config(
@@ -165,7 +220,7 @@ def llama3_1b_soap() -> Trainer.Config:
             dataset_path="./my_local_data/c4_train_1b/",
         ),
         checkpoint=CheckpointManager.Config(
-            folder="/local/home/aziane/checkpoints/1b_soap",
+            folder="/local/home/aziane/checkpoints/llama_1b_soap",
             interval=1000,
         ),
         activation_checkpoint=ActivationCheckpointConfig(
@@ -179,6 +234,11 @@ def llama3_1b_soap() -> Trainer.Config:
     
 def llama3_1b_soap_trunc() -> Trainer.Config:
     return Trainer.Config(
+        compile=CompileConfig(
+            enable=True,
+            components=["model", "loss"],
+            backend="inductor",
+        ),
         loss=ChunkedCELoss.Config(),
         hf_assets_path="./assets/hf/Meta-Llama-3-8B",
         profiler=Profiler.Config(
@@ -192,37 +252,49 @@ def llama3_1b_soap_trunc() -> Trainer.Config:
         # "1b" matches exactly how you registered it in __init__.py
         model_spec=model_registry("1B"), 
         optimizer=OptimizersContainer.Config(
-            name="soap",
-            lr=3e-3,
+            name="soap_truncated",
+            lr=3e-4,
             beta1=0.95,
-            beta2=0.95,
+            beta2=0.99,     #original 0.95
             weight_decay=0.01,
             eps=1e-8,
             # soap args
             precondition_frequency=10,
             max_precond_dim=8192,
             correct_bias=True,
+            normalize_grads=True,
+            use_streaming_lowrank=True,
+            soap_mini_mode='none',
+            soap_mini_apply='none',
+        ),
+        lr_scheduler=LRSchedulersContainer.Config(
+            warmup_steps=100,
+            decay_type="cosine",
         ),
         training=TrainingConfig(
-            local_batch_size=32,
+            local_batch_size=16,
             global_batch_size=2048,
             seq_len=1024,
             steps=2384,
+            max_norm=1.0,
         ),
         dataloader=HuggingFaceTextDataLoader.Config(
             dataset="c4",
             dataset_path="./my_local_data/c4_train_1b/",
         ),
         checkpoint=CheckpointManager.Config(
-            folder="/local/home/aziane/checkpoints/1b_soap",
+            enable=True,
+            folder="/local/home/aziane/checkpoints/llama1b_soap_trunc_lr3e-4_warmup100_beta2_0.99",
             interval=1000,
+            additional_steps=[1, 128, 256, 512],
         ),
         activation_checkpoint=ActivationCheckpointConfig(
             mode="selective",
         ),
         validator=Validator.Config(
-            freq=200,
-            steps=200,
+            enable=True,
+            freq=100,
+            steps=50,
         ),
     )
 

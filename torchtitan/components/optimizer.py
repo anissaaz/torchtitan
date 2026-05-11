@@ -24,6 +24,7 @@ from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed.tensor import Replicate
 from torch.optim import Optimizer
 from torchtitan.components.soap import SOAP
+from torchtitan.components.soap_truncated import SOAPTruncated, LLAMA_TORCHTITAN_LOW_RANK_PATTERNS
 from torchtitan.config import Configurable
 from torchtitan.distributed import ParallelDims
 from torchtitan.tools.logging import logger
@@ -139,6 +140,11 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
         precondition_1d: bool = False
         normalize_grads: bool = False
         correct_bias: bool = True
+        
+        # SOAPTruncated arguments
+        use_streaming_lowrank: bool = False
+        soap_mini_mode: str = 'none'
+        soap_mini_apply: str = 'all'
 
         def __post_init__(self):
             if self.implementation == "fused_opt_states_bf16":
@@ -156,6 +162,7 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
         optimizer_classes = {"adam": torch.optim.Adam, 
                              "adamw": torch.optim.AdamW,
                              "soap": SOAP,
+                             "soap_truncated": SOAPTruncated,
                              }
         key = name.lower()
         if key not in optimizer_classes:
@@ -188,6 +195,12 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
                 "normalize_grads": config.normalize_grads,
                 "correct_bias": config.correct_bias,
             })
+            if config.name.lower() == "soap_truncated":
+                kwargs.update({
+                    "use_streaming_lowrank": config.use_streaming_lowrank,
+                    "soap_mini_mode": config.soap_mini_mode,
+                    "soap_mini_apply": config.soap_mini_apply,
+                })
         else:
             fused = config.implementation in ("fused", "fused_opt_states_bf16")
             kwargs.update({
@@ -266,9 +279,39 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
         all_params = []
         self.optimizers = []
         self.model_parts = model_parts
+        
+        is_soap_truncated = config.name.lower() == "soap_truncated"
+        
         for model in self.model_parts:
+            # --- DEBUGGING PRINT ---
+            print("\n" + "="*40)
+            print("[DEBUG] TORCHTITAN PARAMETER NAMES & SHAPES")
+            print("="*40)
+            for name, param in model.named_parameters():
+                print(f"{name} -> {list(param.shape)}")
+            print("="*40 + "\n")
+            # -----------------------
+        
             param_groups = self._build_param_groups(model, config, optimizer_kwargs)
-            self.optimizers.append(optimizer_cls(param_groups))
+            
+            if is_soap_truncated:
+                param_to_name = {id(p): n for n, p in model.named_parameters()}
+                extra_kwargs = {
+                    "param_to_name": param_to_name,
+                    "low_rank_patterns": LLAMA_TORCHTITAN_LOW_RANK_PATTERNS,
+                }
+                matched = {
+                    v for k, v in param_to_name.items()
+                    if any(pat.search(v) for pat, _ in LLAMA_TORCHTITAN_LOW_RANK_PATTERNS)
+                }
+                print(f"[SOAPTruncated] streaming low-rank will apply to {len(matched)} params:")
+                for n in sorted(matched)[:8]:  # show first few
+                    print(f"  {n}")
+                    
+                self.optimizers.append(optimizer_cls(param_groups, **optimizer_kwargs, **extra_kwargs))
+            else:
+                self.optimizers.append(optimizer_cls(param_groups))
+                
             for group in param_groups:
                 all_params.extend(group["params"])
         if config.implementation == "fused_opt_states_bf16":
